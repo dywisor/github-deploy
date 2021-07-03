@@ -1,0 +1,8 @@
+## additional files to ignore
+/obj
+/doc/pdf
+/local
+/tmp
+
+*.tmp
+.keep

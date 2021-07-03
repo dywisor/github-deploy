@@ -1,0 +1,54 @@
+#!/bin/sh
+# Usage: github-deploy-setup
+#
+#  Initializes the SSH configuration directory.
+#
+set -fu
+
+die() {
+    printf '%s\n' "${1:+died: }${1:-died.}" 1>&2
+    exit "${2:-255}"
+}
+
+autodie() {
+    "${@}" || die "command '${*}' returned ${?}" ${?}
+}
+
+
+[ -n "${HOME-}" ] || die "HOME directory is not set."
+
+SSH_CONFIG_DIR="${HOME}/.ssh"
+SSH_CONFIG_FILE="${SSH_CONFIG_DIR}/config"
+GH_DEPLOY_DIR="${SSH_CONFIG_DIR}/github-deploy"
+
+
+for dirpath in \
+    "${SSH_CONFIG_DIR}" \
+    "${GH_DEPLOY_DIR}" \
+; do
+    if ! mkdir -m 0700 -- "${dirpath}" 2>/dev/null; then
+        # still racy.
+        [ -d "${dirpath}" ] || \
+            autodie mkdir -m 0700 -- "${dirpath}"
+    fi
+done
+
+# super racy
+if [ -e "${SSH_CONFIG_FILE}" ] || [ -h "${SSH_CONFIG_FILE}" ]; then
+    true
+
+else
+    autodie rm -f -- "${SSH_CONFIG_FILE}.new"
+    (
+        umask 0077
+        cat > "${SSH_CONFIG_FILE}.new" << EOF
+IdentitiesOnly yes
+ForwardAgent no
+StrictHostKeyChecking accept-new
+
+Include ~/.ssh/github-deploy/*/config
+EOF
+    ) || die "Failed to create ${SSH_CONFIG_FILE}.new"
+
+    autodie mv -f -- "${SSH_CONFIG_FILE}.new" "${SSH_CONFIG_FILE}"
+fi

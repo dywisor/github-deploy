@@ -1,0 +1,75 @@
+#!/bin/sh
+# Usage: github-deploy-init <name>
+#
+#  Creates a new deploy key.
+#
+set -fu
+
+DEPLOY_ROOT_RELTO_HOME='.ssh/github-deploy'
+
+die() {
+    printf '%s\n' "${1:+died: }${1:-died.}" 1>&2
+    exit "${2:-250}"
+}
+
+{ hostname="$(hostname -s)" && [ -n "${hostname}" ]; } || die "Failed to get hostname"
+
+deploy_root="${HOME:?}/${DEPLOY_ROOT_RELTO_HOME}"
+[ -d "${deploy_root}" ] || exit 9
+
+name="${1-}"
+[ -n "${name}" ] || die "Missing name." 64
+
+repo_profile="github-${name}"
+
+deploy_dir="${deploy_root}/${name}"
+deploy_config_file="${deploy_dir}/config"
+deploy_key_priv="${deploy_dir}/key"
+deploy_key_pub="${deploy_dir}/key.pub"
+
+key_is_new=0
+
+mkdir -p -m 0700 -- "${deploy_dir}" || exit
+
+if [ ! -f "${deploy_key_priv}" ]; then
+    ssh-keygen -q \
+        -t ed25519 \
+        -N '' \
+        -C "github-deploy-${hostname}-${name}" \
+        -f "${deploy_key_priv}" \
+        || die "Failed to create SSH key"
+
+    key_is_new=1
+fi
+
+if [ ! -f "${deploy_key_pub}" ]; then
+    ssh-keygen -y -f "${deploy_key_priv}" > "${deploy_key_pub}.new" || \
+        die "Failed to create pubkey from privkey"
+
+    mv -f -- "${deploy_key_pub}.new" "${deploy_key_pub}" || \
+        die "Failed to move pubkey"
+
+    key_is_new=1
+fi
+
+if [ ${key_is_new} -eq 1 ]; then
+    {
+        printf '*** Install this pubkey to your repo:\n'
+        cat -- "${deploy_key_pub}"
+    } 1>&2 || die
+fi
+
+if [ ! -f "${deploy_config_file}" ] || [ -s "${deploy_config_file}" ]; then
+{
+cat << EOF
+Host ${repo_profile}
+  HostName github.com
+  User git
+  IdentityFile ~/${DEPLOY_ROOT_RELTO_HOME}/${name}/${deploy_key_priv##*/}
+EOF
+} > "${deploy_config_file}.new" || die "Failed to generate config"
+
+    mv -f -- "${deploy_config_file}.new" "${deploy_config_file}" || die "Failed to install config file"
+fi
+
+printf '%s\n' "${repo_profile}"
